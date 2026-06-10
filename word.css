@@ -133,27 +133,28 @@ canvas {
     transform: scale(0.95);
 }
 
-/* BGM toggle button - next to pause */
-#bgmToggleBtn {
+/* Mute button - placed to the right of pause, no overlap */
+.sound-btn {
     position: absolute;
     top: 20px;
-    left: 120px;
+    left: 110px;   /* space after pause button */
     background: rgba(0, 0, 0, 0.7);
     backdrop-filter: blur(8px);
     border: none;
     border-radius: 50px;
-    padding: 8px 16px;
+    padding: 8px 18px;
     font-size: 18px;
+    font-weight: bold;
+    color: white;
     cursor: pointer;
     z-index: 25;
     font-family: monospace;
     transition: 0.2s;
     box-shadow: 0 2px 10px rgba(0,0,0,0.5);
     border: 1px solid rgba(255,215,0,0.6);
-    color: white;
     pointer-events: auto;
 }
-#bgmToggleBtn:active {
+.sound-btn:active {
     transform: scale(0.95);
 }
 
@@ -235,13 +236,14 @@ canvas {
     z-index: 15;
 }
 
+/* Mobile adjustments */
 @media (max-width: 700px) {
     #wordBox { font-size: 28px; letter-spacing: 5px; padding: 5px 12px; }
     #scoreDisplay { font-size: 16px; top: 12px; right: 12px; padding: 5px 12px; }
     #livesDisplay { font-size: 14px; bottom: 12px; left: 12px; padding: 5px 12px; }
     #highScoreDisplay { font-size: 12px; bottom: 12px; right: 12px; padding: 5px 12px; }
     #pauseBtn { top: 12px; left: 12px; padding: 5px 12px; font-size: 14px; }
-    #bgmToggleBtn { top: 12px; left: 100px; padding: 5px 12px; font-size: 14px; }
+    .sound-btn { top: 12px; left: 80px; padding: 5px 12px; font-size: 14px; }  /* adjusted for mobile */
     .speed-indicator { top: 80px; font-size: 10px; }
     #wordsDisplay { font-size: 10px; bottom: 12px; }
     .overlay h1 { font-size: 40px; }
