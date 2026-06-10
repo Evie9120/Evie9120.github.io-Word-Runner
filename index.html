@@ -1,0 +1,59 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Word Runner | 5‑Letter Challenge</title>
+    <link rel="stylesheet" href="word.css">
+</head>
+<body>
+
+<!-- Target word display -->
+<div id="targetWordContainer">
+    <div id="wordBox"></div>
+</div>
+
+<!-- Score - top right -->
+<div id="scoreDisplay">⭐ SCORE: <span id="score">0</span></div>
+
+<!-- Lives - bottom left -->
+<div id="livesDisplay">❤️ <span id="hearts">3</span></div>
+
+<!-- High score - bottom right -->
+<div id="highScoreDisplay">🏆 BEST: <span id="highScore">0</span></div>
+
+<!-- Words completed - bottom center -->
+<div id="wordsDisplay">📖 WORDS: <span id="wordsCompleted">0</span></div>
+
+<!-- Pause button - top left -->
+<button id="pauseBtn">⏸️ PAUSE</button>
+
+<!-- Overlays -->
+<div id="mainMenu" class="overlay" style="display: flex;">
+    <h1>WORD RUNNER</h1>
+    <p>5‑letter challenge</p>
+    <button id="startBtn">▶ START GAME</button>
+    <div style="margin-top: 20px; font-size: 18px;">← → arrows &nbsp;|&nbsp; touch & drag</div>
+</div>
+
+<div id="pauseOverlay" class="overlay">
+    <h1>⏸️ PAUSED</h1>
+    <button id="resumeBtn">▶ RESUME</button>
+    <button id="pauseMainMenuBtn">🏠 MAIN MENU</button>
+</div>
+
+<div id="gameOver" class="overlay">
+    <h1>GAME OVER</h1>
+    <p id="finalScoreMsg">Score: 0</p>
+    <button id="restartBtn">🔄 PLAY AGAIN</button>
+    <button id="gameOverMainMenuBtn">🏠 MAIN MENU</button>
+</div>
+
+<div class="speed-indicator" id="speedDisplay">⚡ SPEED: 4.2</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script src="word.js"></script>
+</body>
+</html>
