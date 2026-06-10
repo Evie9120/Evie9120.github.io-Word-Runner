@@ -1,4 +1,3 @@
-// script.js
 (function(){
     // ---------- DOM elements ----------
     const canvas = document.getElementById("gameCanvas");
@@ -13,6 +12,7 @@
     const mainMenuDiv = document.getElementById("mainMenu");
     const pauseOverlay = document.getElementById("pauseOverlay");
     const pauseBtn = document.getElementById("pauseBtn");
+    const bgmToggleBtn = document.getElementById("bgmToggleBtn");
     const startBtn = document.getElementById("startBtn");
     const restartBtn = document.getElementById("restartBtn");
     const resumeBtn = document.getElementById("resumeBtn");
@@ -48,6 +48,7 @@
     let lastWrongSpawn = 0;
     const MIN_VERTICAL_SPACING = 150;
     
+    // ---------- HIGH SCORE ----------
     let highScore = 0;
     function loadHighScore() {
         let saved = localStorage.getItem("wordRunnerHighScore");
@@ -63,6 +64,138 @@
         }
     }
     
+    // ---------- UPBEAT BACKGROUND MUSIC (Web Audio) ----------
+    let audioCtx = null;
+    let bgmGain = null;
+    let bgmEnabled = false;
+    let bgmLoopTimer = null;
+    let bgmMuted = false;
+    
+    // Upbeat melody notes (higher tempo, cheerful)
+    const melody = [
+        { note: 523.25, duration: 0.2 },  // C5
+        { note: 587.33, duration: 0.2 },  // D5
+        { note: 659.25, duration: 0.2 },  // E5
+        { note: 587.33, duration: 0.2 },  // D5
+        { note: 523.25, duration: 0.4 },  // C5 (hold)
+        { note: 493.88, duration: 0.2 },  // B4
+        { note: 523.25, duration: 0.2 },  // C5
+        { note: 587.33, duration: 0.4 }   // D5
+    ];
+    
+    const bassNotes = [130.81, 130.81, 146.83, 146.83]; // C3, C3, D3, D3
+    let currentLoopStep = 0;
+    
+    function initAudio() {
+        if (audioCtx) return;
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        bgmGain = audioCtx.createGain();
+        bgmGain.gain.value = 0.2; // comfortable volume
+        bgmGain.connect(audioCtx.destination);
+        bgmEnabled = true;
+    }
+    
+    function playTone(freq, startTime, duration, gainValue = 0.2, type = 'square') {
+        if (!audioCtx || !bgmEnabled || bgmMuted) return;
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.value = freq;
+        osc.connect(gainNode);
+        gainNode.connect(bgmGain);
+        gainNode.gain.setValueAtTime(gainValue, startTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+    }
+    
+    function playKick(startTime) {
+        if (!audioCtx || !bgmEnabled || bgmMuted) return;
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = 60;
+        osc.connect(gainNode);
+        gainNode.connect(bgmGain);
+        gainNode.gain.setValueAtTime(0.4, startTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.15);
+        osc.start(startTime);
+        osc.stop(startTime + 0.15);
+    }
+    
+    function playSnare(startTime) {
+        if (!audioCtx || !bgmEnabled || bgmMuted) return;
+        const noise = audioCtx.createBufferSource();
+        const bufferSize = audioCtx.sampleRate * 0.2;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+        noise.buffer = buffer;
+        const gainNode = audioCtx.createGain();
+        noise.connect(gainNode);
+        gainNode.connect(bgmGain);
+        gainNode.gain.setValueAtTime(0.25, startTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.2);
+        noise.start(startTime);
+        noise.stop(startTime + 0.2);
+    }
+    
+    function startUpbeatLoop() {
+        if (!audioCtx) initAudio();
+        if (!audioCtx || bgmLoopTimer) return;
+        audioCtx.resume();
+        
+        const loopDuration = 2.0; // seconds per loop
+        let nextTime = audioCtx.currentTime + 0.05;
+        
+        function scheduleLoop() {
+            if (!bgmEnabled || bgmMuted) {
+                bgmLoopTimer = setTimeout(() => scheduleLoop(), loopDuration * 1000);
+                return;
+            }
+            const now = audioCtx.currentTime;
+            if (nextTime < now) nextTime = now + 0.02;
+            
+            // Drum pattern (kick on 1 & 3, snare on 2 & 4)
+            playKick(nextTime);
+            playSnare(nextTime + 0.5);
+            playKick(nextTime + 1.0);
+            playSnare(nextTime + 1.5);
+            
+            // Melody (every 0.25s)
+            for (let i = 0; i < melody.length; i++) {
+                const noteTime = nextTime + i * 0.25;
+                if (noteTime < nextTime + loopDuration - 0.05) {
+                    playTone(melody[i].note, noteTime, melody[i].duration, 0.18, 'square');
+                }
+            }
+            // Bassline (simple C C D D)
+            for (let i = 0; i < bassNotes.length; i++) {
+                const bassTime = nextTime + i * 0.5;
+                playTone(bassNotes[i], bassTime, 0.4, 0.15, 'triangle');
+            }
+            
+            nextTime += loopDuration;
+            bgmLoopTimer = setTimeout(() => scheduleLoop(), loopDuration * 1000);
+        }
+        scheduleLoop();
+    }
+    
+    function stopBgmLoop() {
+        if (bgmLoopTimer) {
+            clearTimeout(bgmLoopTimer);
+            bgmLoopTimer = null;
+        }
+    }
+    
+    function toggleBgmMute() {
+        if (!audioCtx) return;
+        bgmMuted = !bgmMuted;
+        bgmToggleBtn.textContent = bgmMuted ? "🔇" : "🔊";
+        if (!bgmMuted && bgmEnabled) audioCtx.resume();
+    }
+    
+    // ---------- GAME MECHANICS (unchanged) ----------
     function updateLanes() {
         const roadLeft = canvas.width * 0.18;
         const roadRight = canvas.width * 0.82;
@@ -247,7 +380,7 @@
         }
     }
     
-    // Drawing functions
+    // Drawing functions (unchanged)
     function drawRoad() {
         ctx.fillStyle = "#2a2420";
         ctx.fillRect(canvas.width*0.18, 0, canvas.width*0.64, canvas.height);
@@ -354,8 +487,14 @@
         }
     }
     
-    // Game control functions
+    // ---------- GAME CONTROL (updated to start upbeat BGM) ----------
     function startNewGame() {
+        if (!bgmEnabled || !audioCtx) initAudio();
+        if (audioCtx && !bgmLoopTimer) {
+            audioCtx.resume().then(() => {
+                startUpbeatLoop();
+            }).catch(e => console.log("Audio resume failed", e));
+        }
         gameActive = true;
         paused = false;
         pauseOverlay.style.display = "none";
@@ -478,6 +617,7 @@
         canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
         canvas.addEventListener("touchend", (e) => e.preventDefault());
         pauseBtn.addEventListener("click", togglePause);
+        bgmToggleBtn.addEventListener("click", toggleBgmMute);
         resumeBtn.addEventListener("click", togglePause);
         pauseMainMenuBtn.addEventListener("click", returnToMainMenu);
         gameOverMainMenuBtn.addEventListener("click", returnToMainMenu);
