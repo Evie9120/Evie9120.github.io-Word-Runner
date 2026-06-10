@@ -1,635 +1,251 @@
-(function(){
-    // ---------- DOM elements ----------
-    const canvas = document.getElementById("gameCanvas");
-    const ctx = canvas.getContext("2d");
-    const wordBox = document.getElementById("wordBox");
-    const heartsSpan = document.getElementById("hearts");
-    const scoreSpan = document.getElementById("score");
-    const wordsCompletedSpan = document.getElementById("wordsCompleted");
-    const highScoreSpan = document.getElementById("highScore");
-    const finalScoreMsg = document.getElementById("finalScoreMsg");
-    const gameOverDiv = document.getElementById("gameOver");
-    const mainMenuDiv = document.getElementById("mainMenu");
-    const pauseOverlay = document.getElementById("pauseOverlay");
-    const pauseBtn = document.getElementById("pauseBtn");
-    const bgmToggleBtn = document.getElementById("bgmToggleBtn");
-    const startBtn = document.getElementById("startBtn");
-    const restartBtn = document.getElementById("restartBtn");
-    const resumeBtn = document.getElementById("resumeBtn");
-    const pauseMainMenuBtn = document.getElementById("pauseMainMenuBtn");
-    const gameOverMainMenuBtn = document.getElementById("gameOverMainMenuBtn");
-    const speedDisplaySpan = document.getElementById("speedDisplay");
-    
-    // ---------- GAME STATE ----------
-    let gameActive = false;
-    let paused = false;
-    let score = 0;
-    let hearts = 3;
-    let wordsCompleted = 0;
-    
-    let currentFallSpeed = 4.2;
-    const INITIAL_SPEED = 4.2;
-    const MAX_SPEED = 8.5;
-    const SPEED_INCREMENT = 1.0;
-    
-    let currentWord = "";
-    let currentIndex = 0;
-    
-    const fiveLetterWords = [
-        "APPLE", "BRAIN", "CLOUD", "FLAME", "GHOST", "HONEY", "IGLOO", "JOKER",
-        "KOALA", "LEMON", "MAGIC", "NINJA", "OLIVE", "PIXEL", "QUEST", "STORM",
-        "TIGER", "UMBRA", "WHALE", "XENON", "YACHT", "ZEBRA", "VALUE", "WORLD",
-        "LIGHT", "GRAPE", "MIGHT", "PEARL", "SNAKE", "EAGLE", "OCEAN", "PLANE"
-    ];
-    
-    let lanes = [0, 0, 0];
-    let playerLane = 1;
-    let fallingLetters = [];
-    let lastWrongSpawn = 0;
-    const MIN_VERTICAL_SPACING = 150;
-    
-    // ---------- HIGH SCORE ----------
-    let highScore = 0;
-    function loadHighScore() {
-        let saved = localStorage.getItem("wordRunnerHighScore");
-        if (saved && !isNaN(parseInt(saved))) highScore = parseInt(saved);
-        else highScore = 0;
-        highScoreSpan.textContent = highScore;
-    }
-    function updateHighScore() {
-        if (score > highScore) {
-            highScore = score;
-            highScoreSpan.textContent = highScore;
-            localStorage.setItem("wordRunnerHighScore", highScore);
-        }
-    }
-    
-    // ---------- UPBEAT BACKGROUND MUSIC (Web Audio) ----------
-    let audioCtx = null;
-    let bgmGain = null;
-    let bgmEnabled = false;
-    let bgmLoopTimer = null;
-    let bgmMuted = false;
-    
-    // Upbeat melody notes (higher tempo, cheerful)
-    const melody = [
-        { note: 523.25, duration: 0.2 },  // C5
-        { note: 587.33, duration: 0.2 },  // D5
-        { note: 659.25, duration: 0.2 },  // E5
-        { note: 587.33, duration: 0.2 },  // D5
-        { note: 523.25, duration: 0.4 },  // C5 (hold)
-        { note: 493.88, duration: 0.2 },  // B4
-        { note: 523.25, duration: 0.2 },  // C5
-        { note: 587.33, duration: 0.4 }   // D5
-    ];
-    
-    const bassNotes = [130.81, 130.81, 146.83, 146.83]; // C3, C3, D3, D3
-    let currentLoopStep = 0;
-    
-    function initAudio() {
-        if (audioCtx) return;
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        bgmGain = audioCtx.createGain();
-        bgmGain.gain.value = 0.2; // comfortable volume
-        bgmGain.connect(audioCtx.destination);
-        bgmEnabled = true;
-    }
-    
-    function playTone(freq, startTime, duration, gainValue = 0.2, type = 'square') {
-        if (!audioCtx || !bgmEnabled || bgmMuted) return;
-        const osc = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        osc.type = type;
-        osc.frequency.value = freq;
-        osc.connect(gainNode);
-        gainNode.connect(bgmGain);
-        gainNode.gain.setValueAtTime(gainValue, startTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
-        osc.start(startTime);
-        osc.stop(startTime + duration);
-    }
-    
-    function playKick(startTime) {
-        if (!audioCtx || !bgmEnabled || bgmMuted) return;
-        const osc = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.value = 60;
-        osc.connect(gainNode);
-        gainNode.connect(bgmGain);
-        gainNode.gain.setValueAtTime(0.4, startTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.15);
-        osc.start(startTime);
-        osc.stop(startTime + 0.15);
-    }
-    
-    function playSnare(startTime) {
-        if (!audioCtx || !bgmEnabled || bgmMuted) return;
-        const noise = audioCtx.createBufferSource();
-        const bufferSize = audioCtx.sampleRate * 0.2;
-        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-        const data = buffer.getChannelData(0);
-        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
-        noise.buffer = buffer;
-        const gainNode = audioCtx.createGain();
-        noise.connect(gainNode);
-        gainNode.connect(bgmGain);
-        gainNode.gain.setValueAtTime(0.25, startTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.2);
-        noise.start(startTime);
-        noise.stop(startTime + 0.2);
-    }
-    
-    function startUpbeatLoop() {
-        if (!audioCtx) initAudio();
-        if (!audioCtx || bgmLoopTimer) return;
-        audioCtx.resume();
-        
-        const loopDuration = 2.0; // seconds per loop
-        let nextTime = audioCtx.currentTime + 0.05;
-        
-        function scheduleLoop() {
-            if (!bgmEnabled || bgmMuted) {
-                bgmLoopTimer = setTimeout(() => scheduleLoop(), loopDuration * 1000);
-                return;
-            }
-            const now = audioCtx.currentTime;
-            if (nextTime < now) nextTime = now + 0.02;
-            
-            // Drum pattern (kick on 1 & 3, snare on 2 & 4)
-            playKick(nextTime);
-            playSnare(nextTime + 0.5);
-            playKick(nextTime + 1.0);
-            playSnare(nextTime + 1.5);
-            
-            // Melody (every 0.25s)
-            for (let i = 0; i < melody.length; i++) {
-                const noteTime = nextTime + i * 0.25;
-                if (noteTime < nextTime + loopDuration - 0.05) {
-                    playTone(melody[i].note, noteTime, melody[i].duration, 0.18, 'square');
-                }
-            }
-            // Bassline (simple C C D D)
-            for (let i = 0; i < bassNotes.length; i++) {
-                const bassTime = nextTime + i * 0.5;
-                playTone(bassNotes[i], bassTime, 0.4, 0.15, 'triangle');
-            }
-            
-            nextTime += loopDuration;
-            bgmLoopTimer = setTimeout(() => scheduleLoop(), loopDuration * 1000);
-        }
-        scheduleLoop();
-    }
-    
-    function stopBgmLoop() {
-        if (bgmLoopTimer) {
-            clearTimeout(bgmLoopTimer);
-            bgmLoopTimer = null;
-        }
-    }
-    
-    function toggleBgmMute() {
-        if (!audioCtx) return;
-        bgmMuted = !bgmMuted;
-        bgmToggleBtn.textContent = bgmMuted ? "🔇" : "🔊";
-        if (!bgmMuted && bgmEnabled) audioCtx.resume();
-    }
-    
-    // ---------- GAME MECHANICS (unchanged) ----------
-    function updateLanes() {
-        const roadLeft = canvas.width * 0.18;
-        const roadRight = canvas.width * 0.82;
-        const step = (roadRight - roadLeft) / 2;
-        lanes[0] = roadLeft;
-        lanes[1] = roadLeft + step;
-        lanes[2] = roadRight;
-    }
-    
-    function wouldOverlap(laneIndex, newY, radius) {
-        for (let l of fallingLetters) {
-            if (l.laneIndex === laneIndex && Math.abs(l.y - newY) < MIN_VERTICAL_SPACING) return true;
-        }
-        return false;
-    }
-    
-    function removeAllCorrectLetters() {
-        fallingLetters = fallingLetters.filter(l => !l.isCorrect);
-    }
-    
-    function spawnCorrectLetter() {
-        if (!gameActive || paused) return;
-        if (currentIndex >= currentWord.length) return;
-        removeAllCorrectLetters();
-        const targetChar = currentWord[currentIndex];
-        const randomLane = Math.floor(Math.random() * 3);
-        let startY = -45 - Math.random() * 55;
-        let attempts = 0;
-        while (wouldOverlap(randomLane, startY, 34) && attempts < 25) {
-            startY = -55 - Math.random() * 80;
-            attempts++;
-        }
-        if (wouldOverlap(randomLane, startY, 34)) {
-            let highestY = -100;
-            for (let l of fallingLetters) if (l.laneIndex === randomLane && l.y < highestY) highestY = l.y;
-            startY = highestY - MIN_VERTICAL_SPACING - 10;
-            if (startY > -30) startY = -80;
-        }
-        fallingLetters.push({
-            x: lanes[randomLane], y: startY, char: targetChar, isCorrect: true,
-            speed: currentFallSpeed, radius: 34, laneIndex: randomLane
-        });
-    }
-    
-    function generateNewWord() {
-        let newWord;
-        do { newWord = fiveLetterWords[Math.floor(Math.random() * fiveLetterWords.length)]; } 
-        while (newWord === currentWord);
-        currentWord = newWord;
-        currentIndex = 0;
-        updateWordDisplay();
-        removeAllCorrectLetters();
-        spawnCorrectLetter();
-    }
-    
-    function onWordComplete() {
-        wordsCompleted++;
-        wordsCompletedSpan.textContent = wordsCompleted;
-        if (wordsCompleted % 5 === 0 && currentFallSpeed < MAX_SPEED) {
-            currentFallSpeed = Math.min(MAX_SPEED, currentFallSpeed + SPEED_INCREMENT);
-            speedDisplaySpan.textContent = `⚡ SPEED: ${currentFallSpeed.toFixed(1)}`;
-            for (let l of fallingLetters) l.speed = currentFallSpeed;
-        }
-        score += 50;
-        updateScoreUI();
-        updateHighScore();
-        generateNewWord();
-    }
-    
-    function updateWordDisplay() {
-        let display = "";
-        for (let i = 0; i < currentWord.length; i++) {
-            if (i < currentIndex) display += currentWord[i] + " ";
-            else if (i === currentIndex) display += "▢ ";
-            else display += "_ ";
-        }
-        wordBox.textContent = display.trim();
-    }
-    
-    function updateHeartsUI() { heartsSpan.textContent = hearts; }
-    function updateScoreUI() { scoreSpan.textContent = score; }
-    
-    function loseHeart() {
-        if (!gameActive || paused) return;
-        hearts--;
-        updateHeartsUI();
-        if (hearts <= 0) {
-            hearts = 0;
-            updateHeartsUI();
-            gameActive = false;
-            finalScoreMsg.textContent = `Score: ${score}`;
-            updateHighScore();
-            gameOverDiv.style.display = "flex";
-        }
-    }
-    
-    function catchLetter(letter, idx) {
-        if (!gameActive || paused) return false;
-        if (letter.isCorrect) {
-            if (letter.char === currentWord[currentIndex]) {
-                score += 12;
-                updateScoreUI();
-                updateHighScore();
-                currentIndex++;
-                updateWordDisplay();
-                fallingLetters.splice(idx, 1);
-                if (currentIndex >= currentWord.length) onWordComplete();
-                else spawnCorrectLetter();
-                return true;
-            } else {
-                loseHeart();
-                fallingLetters.splice(idx, 1);
-                spawnCorrectLetter();
-                return false;
-            }
-        } else {
-            loseHeart();
-            fallingLetters.splice(idx, 1);
-            return false;
-        }
-    }
-    
-    function trySpawnWrongLetter(now) {
-        if (!gameActive || paused) return;
-        let dynamicInterval = Math.max(480, 1050 - Math.floor(score / 90) * 16);
-        if (dynamicInterval < 440) dynamicInterval = 440;
-        if (now - lastWrongSpawn >= dynamicInterval) {
-            lastWrongSpawn = now;
-            const randomLane = Math.floor(Math.random() * 3);
-            let wrongChar = String.fromCharCode(65 + Math.floor(Math.random() * 26));
-            if (currentIndex < currentWord.length && wrongChar === currentWord[currentIndex]) {
-                wrongChar = String.fromCharCode(65 + (wrongChar.charCodeAt(0) - 65 + 3) % 26);
-            }
-            let startY = -40 - Math.random() * 65;
-            let attempts = 0;
-            while (wouldOverlap(randomLane, startY, 34) && attempts < 25) {
-                startY = -45 - Math.random() * 80;
-                attempts++;
-            }
-            if (wouldOverlap(randomLane, startY, 34)) {
-                let highestY = -100;
-                for (let l of fallingLetters) if (l.laneIndex === randomLane && l.y < highestY) highestY = l.y;
-                startY = highestY - MIN_VERTICAL_SPACING - 8;
-                if (startY > -30) startY = -75;
-            }
-            fallingLetters.push({
-                x: lanes[randomLane], y: startY, char: wrongChar, isCorrect: false,
-                speed: currentFallSpeed, radius: 34, laneIndex: randomLane
-            });
-        }
-    }
-    
-    function updateLettersMovement() {
-        for (let l of fallingLetters) l.y += l.speed;
-        for (let i = 0; i < fallingLetters.length; i++) {
-            const l = fallingLetters[i];
-            if (l.y + l.radius > canvas.height) {
-                if (l.isCorrect) {
-                    fallingLetters.splice(i,1);
-                    if (gameActive && !paused && currentIndex < currentWord.length) spawnCorrectLetter();
-                    i--;
-                } else {
-                    fallingLetters.splice(i,1);
-                    i--;
-                }
-            }
-        }
-    }
-    
-    function handleCollisions() {
-        const playerTop = canvas.height - 138, playerBottom = canvas.height - 48;
-        const playerLeft = lanes[playerLane] - 38, playerRight = lanes[playerLane] + 38;
-        for (let i = 0; i < fallingLetters.length; i++) {
-            const l = fallingLetters[i];
-            const closestX = Math.max(playerLeft, Math.min(l.x, playerRight));
-            const closestY = Math.max(playerTop, Math.min(l.y, playerBottom));
-            const dx = closestX - l.x, dy = closestY - l.y;
-            if (Math.sqrt(dx*dx + dy*dy) < l.radius) {
-                catchLetter(l, i);
-                i--;
-            }
-        }
-    }
-    
-    // Drawing functions (unchanged)
-    function drawRoad() {
-        ctx.fillStyle = "#2a2420";
-        ctx.fillRect(canvas.width*0.18, 0, canvas.width*0.64, canvas.height);
-        ctx.fillStyle = "#463e38";
-        for(let i=0;i<22;i++) ctx.fillRect(canvas.width*0.19 + i*30, 0, 7, canvas.height);
-        ctx.beginPath();
-        ctx.strokeStyle = "#FFE484";
-        ctx.lineWidth = 5;
-        ctx.setLineDash([28, 42]);
-        for(let i=1; i<=2; i++){
-            const laneX = canvas.width * (0.18 + i*0.32);
-            ctx.beginPath();
-            ctx.moveTo(laneX, 0);
-            ctx.lineTo(laneX, canvas.height);
-            ctx.stroke();
-        }
-        ctx.setLineDash([]);
-        ctx.lineWidth = 7;
-        ctx.strokeStyle = "#edb15d";
-        ctx.beginPath();
-        ctx.moveTo(canvas.width*0.18, 0);
-        ctx.lineTo(canvas.width*0.18, canvas.height);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(canvas.width*0.82, 0);
-        ctx.lineTo(canvas.width*0.82, canvas.height);
-        ctx.stroke();
-    }
-    
-    function drawPlayer() {
-        const x = lanes[playerLane] - 36, y = canvas.height - 138;
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = "#00000070";
-        ctx.fillStyle = "#FFBB44";
-        ctx.beginPath();
-        ctx.roundRect(x, y, 72, 86, 18);
-        ctx.fill();
-        ctx.fillStyle = "#FFE0A3";
-        ctx.beginPath();
-        ctx.roundRect(x+12, y+12, 48, 42, 14);
-        ctx.fill();
-        ctx.fillStyle = "#2c2c2c";
-        ctx.beginPath();
-        ctx.ellipse(x+14, y+78, 14, 9, 0, 0, Math.PI*2);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.ellipse(x+58, y+78, 14, 9, 0, 0, Math.PI*2);
-        ctx.fill();
-        ctx.fillStyle = "#FFF6CF";
-        ctx.font = "bold 24px monospace";
-        ctx.fillText("🏎️", x+24, y+48);
-        ctx.shadowBlur = 0;
-    }
-    
-    function drawLetters() {
-        for (let l of fallingLetters) {
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = l.isCorrect ? "#00FFAA" : "#FF3A5E";
-            const grad = ctx.createRadialGradient(l.x-6, l.y-6, 6, l.x, l.y, l.radius);
-            if(l.isCorrect) grad.addColorStop(0, "#2EFFB0"), grad.addColorStop(1, "#00997A");
-            else grad.addColorStop(0, "#FF7A6E"), grad.addColorStop(1, "#B12A2A");
-            ctx.fillStyle = grad;
-            ctx.beginPath();
-            ctx.arc(l.x, l.y, l.radius, 0, Math.PI*2);
-            ctx.fill();
-            ctx.fillStyle = "#FFFFD0";
-            ctx.beginPath();
-            ctx.arc(l.x, l.y, l.radius-8, 0, Math.PI*2);
-            ctx.fill();
-            ctx.fillStyle = "#1F2F2E";
-            ctx.font = `bold ${Math.floor(l.radius * 0.8)}px "Courier New", monospace`;
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillText(l.char, l.x, l.y+2);
-            ctx.fillStyle = "white";
-            ctx.fillText(l.char, l.x-1, l.y+1);
-        }
-        ctx.shadowBlur = 0;
-        ctx.textAlign = "left";
-    }
-    
-    if (!CanvasRenderingContext2D.prototype.roundRect) {
-        CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
-            if (w < 2*r) r = w/2;
-            if (h < 2*r) r = h/2;
-            this.moveTo(x+r, y);
-            this.lineTo(x+w-r, y);
-            this.quadraticCurveTo(x+w, y, x+w, y+r);
-            this.lineTo(x+w, y+h-r);
-            this.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
-            this.lineTo(x+r, y+h);
-            this.quadraticCurveTo(x, y+h, x, y+h-r);
-            this.lineTo(x, y+r);
-            this.quadraticCurveTo(x, y, x+r, y);
-            return this;
-        };
-    }
-    
-    function drawEffects() {
-        const t = Date.now() / 100;
-        for(let i=0;i<8;i++) {
-            ctx.fillStyle = `rgba(255,200,80,0.25)`;
-            ctx.fillRect(canvas.width*(0.2+ i*0.07), (t*30 + i*70) % canvas.height, 6, 24);
-        }
-    }
-    
-    // ---------- GAME CONTROL (updated to start upbeat BGM) ----------
-    function startNewGame() {
-        if (!bgmEnabled || !audioCtx) initAudio();
-        if (audioCtx && !bgmLoopTimer) {
-            audioCtx.resume().then(() => {
-                startUpbeatLoop();
-            }).catch(e => console.log("Audio resume failed", e));
-        }
-        gameActive = true;
-        paused = false;
-        pauseOverlay.style.display = "none";
-        score = 0;
-        hearts = 3;
-        wordsCompleted = 0;
-        currentFallSpeed = INITIAL_SPEED;
-        speedDisplaySpan.textContent = `⚡ SPEED: ${currentFallSpeed.toFixed(1)}`;
-        playerLane = 1;
-        fallingLetters = [];
-        updateScoreUI();
-        updateHeartsUI();
-        wordsCompletedSpan.textContent = "0";
-        currentWord = fiveLetterWords[Math.floor(Math.random() * fiveLetterWords.length)];
-        currentIndex = 0;
-        updateWordDisplay();
-        spawnCorrectLetter();
-        lastWrongSpawn = performance.now();
-        mainMenuDiv.style.display = "none";
-        gameOverDiv.style.display = "none";
-    }
-    
-    function returnToMainMenu() {
-        if (gameActive && score > highScore) updateHighScore();
-        gameActive = false;
-        paused = false;
-        mainMenuDiv.style.display = "flex";
-        gameOverDiv.style.display = "none";
-        pauseOverlay.style.display = "none";
-    }
-    
-    function togglePause() {
-        if (!gameActive) return;
-        if (paused) {
-            paused = false;
-            pauseOverlay.style.display = "none";
-            lastWrongSpawn = performance.now();
-        } else {
-            paused = true;
-            pauseOverlay.style.display = "flex";
-        }
-    }
-    
-    function resizeCanvas() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-        updateLanes();
-        for (let l of fallingLetters) {
-            if (l.laneIndex !== undefined && lanes[l.laneIndex] !== undefined) l.x = lanes[l.laneIndex];
-            else {
-                let closest = 0, minDist = Infinity;
-                for (let i=0;i<lanes.length;i++) {
-                    let d = Math.abs(l.x - lanes[i]);
-                    if(d < minDist) { minDist = d; closest = i; }
-                }
-                l.laneIndex = closest;
-                l.x = lanes[closest];
-            }
-        }
-    }
-    
-    // Touch & keyboard
-    function handleTouchMove(e) {
-        if (!gameActive || paused) return;
-        e.preventDefault();
-        const touchX = e.touches[0].clientX;
-        let bestLane = 0, minDist = Infinity;
-        for (let i = 0; i < lanes.length; i++) {
-            const dist = Math.abs(touchX - lanes[i]);
-            if (dist < minDist) { minDist = dist; bestLane = i; }
-        }
-        if (minDist < 100) playerLane = bestLane;
-    }
-    
-    function onTouchStart(e) {
-        if (!gameActive || paused) return;
-        e.preventDefault();
-        const touchX = e.touches[0].clientX;
-        let best = 0, minD = Infinity;
-        for (let i=0;i<lanes.length;i++) {
-            const d = Math.abs(touchX - lanes[i]);
-            if(d < minD) { minD = d; best = i; }
-        }
-        if(minD < 80) playerLane = best;
-    }
-    
-    function handleKeyDown(e) {
-        if (!gameActive || paused) return;
-        if (e.key === "ArrowLeft") {
-            playerLane = Math.max(0, playerLane - 1);
-            e.preventDefault();
-        } else if (e.key === "ArrowRight") {
-            playerLane = Math.min(2, playerLane + 1);
-            e.preventDefault();
-        }
-    }
-    
-    function gameLoop() {
-        requestAnimationFrame(gameLoop);
-        if (!canvas.isConnected) return;
-        if (gameActive && !paused) {
-            const now = performance.now();
-            trySpawnWrongLetter(now);
-            updateLettersMovement();
-            handleCollisions();
-        }
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        drawRoad();
-        drawEffects();
-        drawLetters();
-        drawPlayer();
-    }
-    
-    function init() {
-        loadHighScore();
-        resizeCanvas();
-        window.addEventListener("resize", resizeCanvas);
-        document.addEventListener("keydown", handleKeyDown);
-        canvas.addEventListener("touchstart", onTouchStart, { passive: false });
-        canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
-        canvas.addEventListener("touchend", (e) => e.preventDefault());
-        pauseBtn.addEventListener("click", togglePause);
-        bgmToggleBtn.addEventListener("click", toggleBgmMute);
-        resumeBtn.addEventListener("click", togglePause);
-        pauseMainMenuBtn.addEventListener("click", returnToMainMenu);
-        gameOverMainMenuBtn.addEventListener("click", returnToMainMenu);
-        startBtn.addEventListener("click", startNewGame);
-        restartBtn.addEventListener("click", startNewGame);
-        
-        gameActive = false;
-        mainMenuDiv.style.display = "flex";
-        gameOverDiv.style.display = "none";
-        pauseOverlay.style.display = "none";
-        requestAnimationFrame(gameLoop);
-    }
-    
-    init();
-})();
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+body {
+    overflow: hidden;
+    background: #0a2f2f;
+    font-family: 'Segoe UI', 'Poppins', system-ui, sans-serif;
+    touch-action: pan-x pan-y;
+}
+
+canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    cursor: none;
+    touch-action: none;
+}
+
+/* Target word display - centered at top */
+#targetWordContainer {
+    position: absolute;
+    top: 20px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    z-index: 15;
+    pointer-events: none;
+}
+
+#wordBox {
+    font-size: 48px;
+    font-weight: 800;
+    color: white;
+    text-shadow: 0 4px 12px black;
+    letter-spacing: 12px;
+    font-family: 'Courier New', monospace;
+    background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(10px);
+    padding: 8px 20px;
+    display: inline-block;
+    border-radius: 70px;
+    white-space: nowrap;
+}
+
+/* Score - top right */
+#scoreDisplay {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    padding: 8px 18px;
+    border-radius: 40px;
+    color: #ffd966;
+    font-size: 22px;
+    font-weight: bold;
+    font-family: monospace;
+    z-index: 20;
+    pointer-events: none;
+    border: 1px solid rgba(255,215,0,0.5);
+}
+#scoreDisplay span {
+    color: white;
+}
+
+/* Lives - bottom left */
+#livesDisplay {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    padding: 8px 18px;
+    border-radius: 40px;
+    color: white;
+    font-size: 20px;
+    font-weight: bold;
+    font-family: monospace;
+    z-index: 20;
+    pointer-events: none;
+    border: 1px solid rgba(255,100,100,0.5);
+}
+#livesDisplay span {
+    color: #ff6666;
+    margin-right: 4px;
+}
+
+/* High score - bottom right */
+#highScoreDisplay {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    padding: 8px 18px;
+    border-radius: 40px;
+    color: #ffd966;
+    font-size: 18px;
+    font-weight: bold;
+    font-family: monospace;
+    z-index: 20;
+    pointer-events: none;
+    border: 1px solid rgba(255,215,0,0.5);
+}
+
+/* Pause button - top left */
+#pauseBtn {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    border: none;
+    border-radius: 50px;
+    padding: 8px 18px;
+    font-size: 18px;
+    font-weight: bold;
+    color: white;
+    cursor: pointer;
+    z-index: 25;
+    font-family: monospace;
+    transition: 0.2s;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    border: 1px solid rgba(255,215,0,0.6);
+    pointer-events: auto;
+}
+#pauseBtn:active {
+    transform: scale(0.95);
+}
+
+/* Mute button - placed to the right of pause, no overlap */
+.sound-btn {
+    position: absolute;
+    top: 20px;
+    left: 110px;   /* space after pause button */
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    border: none;
+    border-radius: 50px;
+    padding: 8px 18px;
+    font-size: 18px;
+    font-weight: bold;
+    color: white;
+    cursor: pointer;
+    z-index: 25;
+    font-family: monospace;
+    transition: 0.2s;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    border: 1px solid rgba(255,215,0,0.6);
+    pointer-events: auto;
+}
+.sound-btn:active {
+    transform: scale(0.95);
+}
+
+/* Words completed - bottom center */
+#wordsDisplay {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    padding: 4px 12px;
+    border-radius: 30px;
+    color: #aaa;
+    font-size: 14px;
+    font-family: monospace;
+    pointer-events: none;
+    z-index: 20;
+}
+
+/* Overlay base style */
+.overlay {
+    position: absolute;
+    inset: 0;
+    display: none;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    background: rgba(0, 0, 0, 0.92);
+    backdrop-filter: blur(12px);
+    color: white;
+    z-index: 40;
+    font-family: 'Segoe UI', sans-serif;
+}
+.overlay h1 {
+    font-size: 70px;
+    margin-bottom: 25px;
+    letter-spacing: 4px;
+    background: linear-gradient(135deg, #ffbb77, #ff5577);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+.overlay p {
+    font-size: 28px;
+    margin-bottom: 20px;
+    color: #ffd966;
+}
+.overlay button {
+    padding: 14px 38px;
+    font-size: 24px;
+    font-weight: bold;
+    border: none;
+    border-radius: 60px;
+    cursor: pointer;
+    background: #ffd966;
+    color: #2c3e2f;
+    transition: 0.2s;
+    box-shadow: 0 8px 0 #b97f10;
+    transform: translateY(-2px);
+    margin: 10px;
+}
+.overlay button:active {
+    transform: translateY(4px);
+    box-shadow: 0 4px 0 #b97f10;
+}
+
+.speed-indicator {
+    position: absolute;
+    top: 100px;
+    right: 20px;
+    background: rgba(0,0,0,0.6);
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    color: #ccc;
+    font-family: monospace;
+    pointer-events: none;
+    z-index: 15;
+}
+
+/* Mobile adjustments */
+@media (max-width: 700px) {
+    #wordBox { font-size: 28px; letter-spacing: 5px; padding: 5px 12px; }
+    #scoreDisplay { font-size: 16px; top: 12px; right: 12px; padding: 5px 12px; }
+    #livesDisplay { font-size: 14px; bottom: 12px; left: 12px; padding: 5px 12px; }
+    #highScoreDisplay { font-size: 12px; bottom: 12px; right: 12px; padding: 5px 12px; }
+    #pauseBtn { top: 12px; left: 12px; padding: 5px 12px; font-size: 14px; }
+    .sound-btn { top: 12px; left: 80px; padding: 5px 12px; font-size: 14px; }  /* adjusted for mobile */
+    .speed-indicator { top: 80px; font-size: 10px; }
+    #wordsDisplay { font-size: 10px; bottom: 12px; }
+    .overlay h1 { font-size: 40px; }
+    .overlay p { font-size: 20px; }
+}
